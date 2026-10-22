@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-sdk"
+version = "1.0.0"
+description = "Put every AI-agent action behind a Sentinel policy check"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+aws = ["boto3>=1.34"]
+claude = ["claude-agent-sdk"]
+langchain = ["langchain-core>=0.2"]
+mcp = ["mcp"]
+
+[tool.setuptools.packages.find]
+include = ["sentinel_sdk*"]

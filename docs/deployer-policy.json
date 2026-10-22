@@ -1,0 +1,50 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UseCdkBootstrapRoles",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": [
+        "arn:aws:iam::*:role/cdk-*-deploy-role-*-ap-south-1",
+        "arn:aws:iam::*:role/cdk-*-file-publishing-role-*-ap-south-1",
+        "arn:aws:iam::*:role/cdk-*-lookup-role-*-ap-south-1"
+      ]
+    },
+    {
+      "Sid": "ReadStackOutputs",
+      "Effect": "Allow",
+      "Action": ["cloudformation:DescribeStacks", "cloudformation:DescribeStackEvents"],
+      "Resource": "arn:aws:cloudformation:ap-south-1:*:stack/Sentinel/*"
+    },
+    {
+      "Sid": "SetSlackWebhook",
+      "Effect": "Allow",
+      "Action": "secretsmanager:PutSecretValue",
+      "Resource": "arn:aws:secretsmanager:ap-south-1:*:secret:SlackWebhook*"
+    },
+    {
+      "Sid": "UpdatePolicyFile",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::sentinel-policybucket*/policy.yaml"
+    },
+    {
+      "Sid": "EncryptPolicyUploadsViaS3",
+      "Effect": "Allow",
+      "Action": ["kms:GenerateDataKey", "kms:Decrypt"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "kms:ViaService": ["s3.ap-south-1.amazonaws.com", "secretsmanager.ap-south-1.amazonaws.com"] },
+        "ForAnyValue:StringEquals": { "kms:ResourceAliases": "alias/sentinel" }
+      }
+    },
+    {
+      "Sid": "ManageConsoleUsers",
+      "Effect": "Allow",
+      "Action": ["cognito-idp:AdminCreateUser", "cognito-idp:AdminAddUserToGroup", "cognito-idp:AdminRemoveUserFromGroup"],
+      "Resource": "arn:aws:cognito-idp:ap-south-1:*:userpool/*",
+      "Condition": { "StringEquals": { "aws:ResourceTag/app": "sentinel" } }
+    }
+  ]
+}

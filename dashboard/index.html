@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sentinel console</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
+          <path d="M16 2 4 7v8c0 7.4 5.1 13.4 12 15 6.9-1.6 12-7.6 12-15V7L16 2z" fill="none" stroke="currentColor" stroke-width="2.2"/>
+          <path d="M10 16.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Sentinel</span>
+      </div>
+      <nav aria-label="Sections">
+        <a href="#/overview" data-route="overview">Overview</a>
+        <a href="#/approvals" data-route="approvals">Held actions <b class="count" id="nav-held" hidden></b></a>
+        <a href="#/alerts" data-route="alerts">Alerts <b class="count" id="nav-alerts" hidden></b></a>
+        <a href="#/agents" data-route="agents">Agents</a>
+        <a href="#/activity" data-route="activity">Activity log</a>
+        <a href="#/compliance" data-route="compliance">Compliance</a>
+        <a href="#/risks" data-route="risks">Risk register</a>
+        <a href="#/policy" data-route="policy">Policy</a>
+      </nav>
+      <div class="who" id="who"></div>
+    </aside>
+    <main id="main" tabindex="-1">
+      <div id="view" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dialog"></dialog>
+</body>
+</html>

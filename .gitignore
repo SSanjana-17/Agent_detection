@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+build/
+infra/cdk.out/
+cdk-outputs.json
+redteam_report.json
+.pytest_cache/
+dashboard/config.json
+
+# local environment and deploy artifacts (never commit)
+.venv/
+*.pkg
+deploy.log
+*.log
+.env
+.DS_Store

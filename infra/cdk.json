@@ -1,0 +1,16 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "region": "ap-south-1",
+    "stackName": "Sentinel",
+    "adminEmail": "",
+    "alertEmails": [],
+    "protectedBuckets": [],
+    "bedrockModelId": "",
+    "evidenceRetentionDays": 2555,
+    "securityHub": "false",
+    "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
+    "@aws-cdk/aws-iam:minimizePolicies": true,
+    "@aws-cdk/aws-lambda:recognizeLayerVersion": true
+  }
+}
