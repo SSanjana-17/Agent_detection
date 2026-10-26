@@ -19,21 +19,23 @@ from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_s3_deployment as s3deploy
+from aws_cdk import aws_secretsmanager as sm
 from constructs import Construct
 
 AGENTS = {
-    "kyc-agent": {"handler": "agents.kyc_agent.handler", "write_prefix": "kyc/*",
-                  "schedule_input": {"batch": 3}},
-    "loan-agent": {"handler": "agents.loan_agent.handler", "write_prefix": "loans/decisions/*",
-                   "schedule_input": {"mode": "normal", "batch": 3}},
-    "reporting-agent": {"handler": "agents.reporting_agent.handler", "write_prefix": "reports/*",
-                        "schedule_input": {"mode": "normal"}},
+    "kyc-agent": {"handler": "agents.llm_agents.kyc_handler", "write_prefix": "kyc/*",
+                  "schedule_input": {"count": 2}},
+    "loan-agent": {"handler": "agents.llm_agents.loan_handler", "write_prefix": "loans/decisions/*",
+                   "schedule_input": {"count": 2}},
+    "reporting-agent": {"handler": "agents.llm_agents.reporting_handler", "write_prefix": "reports/weekly/*",
+                        "schedule_input": {}},
 }
 
 
 class DemoAgents(Construct):
     def __init__(self, scope: Construct, cid: str, *, agent_code_dir: str, data_dir: str,
                  sentinel_endpoint: str, agent_invoke_policy: iam.IManagedPolicy,
+                 llm_secret_name: str = "sentinel-demo/llm-api-key", llm_model: str = "openai/gpt-oss-120b",
                  schedule_minutes: int = 10, **kw) -> None:
         super().__init__(scope, cid, **kw)
         stack = Stack.of(self)
@@ -48,6 +50,7 @@ class DemoAgents(Construct):
             sources=[s3deploy.Source.asset(data_dir)], memory_limit=512)
 
         code = lambda_.Code.from_asset(agent_code_dir)
+        llm_secret = sm.Secret.from_secret_name_v2(self, "LlmKey", llm_secret_name)
         self.functions: dict[str, lambda_.Function] = {}
         for agent_id, spec in AGENTS.items():
             name = f"sentinel-demo-{agent_id}"
@@ -67,10 +70,12 @@ class DemoAgents(Construct):
             fn = lambda_.Function(
                 self, f"{agent_id}-fn", function_name=name, role=role,
                 runtime=lambda_.Runtime.PYTHON_3_12, architecture=lambda_.Architecture.ARM_64,
-                code=code, handler=spec["handler"], memory_size=256, timeout=Duration.minutes(5),
+                code=code, handler=spec["handler"], memory_size=512, timeout=Duration.minutes(5),
                 log_group=log_group,
                 environment={"SENTINEL_ENDPOINT": sentinel_endpoint, "BANK_BUCKET": self.bucket.bucket_name,
-                             "HOLD_MAX_WAIT": "240"})
+                             "HOLD_MAX_WAIT": "180", "LLM_SECRET_ARN": llm_secret.secret_arn,
+                             "LLM_MODEL": llm_model})
+            llm_secret.grant_read(role)
             fn.node.add_dependency(log_group)
             if schedule_minutes > 0:
                 events.Rule(self, f"{agent_id}-schedule", rule_name=f"{name}-schedule",
