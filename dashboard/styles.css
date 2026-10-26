@@ -299,7 +299,22 @@ pre { background: var(--surface-2); border: 1px solid var(--rule); border-radius
   transition: opacity .2s, transform .2s; pointer-events: none; max-width: 440px; }
 #toast.show { opacity: 1; transform: none; }
 dialog { border: 1px solid var(--ink); border-radius: 0; background: var(--surface);
-  color: var(--ink); padding: 26px; width: min(540px, 92vw); }
+  color: var(--ink); padding: 26px; width: min(560px, 94vw); }
+dialog:has(.fixform) { width: min(680px, 94vw); }
+
+/* guided fix checklist */
+.fixform { max-height: 82vh; overflow: auto; }
+.checklist { list-style: none; margin: 10px 0 0; padding: 0; border: 1px solid var(--rule); }
+.checklist > .step { padding: 13px 15px; border-bottom: 1px solid var(--rule-2); }
+.checklist > .step:last-child { border-bottom: 0; }
+.step-head { display: flex; gap: 11px; align-items: flex-start; cursor: pointer; font-weight: 500; line-height: 1.45; }
+.step-head input { margin: 2px 0 0; flex: none; width: 17px; height: 17px; accent-color: var(--allow); cursor: pointer; }
+.step-detail { margin: 8px 0 0 28px; }
+.step-detail pre { margin: 2px 0; font-size: 11.5px; max-height: none; }
+.step-detail code { color: var(--ink); }
+.progress { margin-top: 12px; font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ink-3); }
+.progress.done { color: var(--allow); font-weight: 600; }
 dialog h2 { font-family: var(--display); font-size: 20px; text-transform: none; letter-spacing: -.01em; color: var(--ink); }
 dialog::backdrop { background: color-mix(in srgb, var(--paper) 55%, rgba(0,0,0,.5)); }
 
