@@ -321,23 +321,77 @@ async function quarantineAgent(agentId) {
   } catch (e) { toast(e.message); }
 }
 
-// The gated fix: a step-by-step code/policy checklist. Release unlocks only when every
-// step is ticked and a note is written.
+// The gated fix: a step-by-step code/policy checklist, then a live verification.
+// Release unlocks only after every step is ticked, a note is written, AND Sentinel
+// confirms the agent's new behaviour (it was re-run and no longer trips the rule).
 function openFixChecklist(agentId, alert) {
   const steps = getChecklist(alert ? alert.rule_id : "");
+  const ruleId = alert ? alert.rule_id : null;
   const d = document.getElementById("dialog");
+  const openedAt = Math.floor(Date.now() / 1000);
+  let baseFingerprint = null;
+  api("/v1/policy").then((p) => { baseFingerprint = p.fingerprint; }).catch(() => {});
+
   const boxes = [];
+  let verifyPassed = false;
   const progress = el("div", { class: "progress small" });
-  const note = el("textarea", { id: "fixnote", placeholder: "e.g. Narrowed loan-agent permissions, redeployed, verified the read is denied." });
+  const note = el("textarea", { id: "fixnote", placeholder: "e.g. Hardened loan-agent prompt, narrowed its permissions, redeployed." });
+  const result = el("div", { class: "verify-result", hidden: true });
+  const verifyBtn = el("button", { type: "button", class: "primary", disabled: true }, "Run verification check");
   const submit = el("button", { type: "submit", class: "approve", disabled: true }, "Release agent");
+
   const update = () => {
     const done = boxes.filter((b) => b.checked).length;
-    progress.textContent = `${done} of ${steps.length} steps complete${done === steps.length ? " — ready to release" : ""}`;
+    const ready = done === steps.length && note.value.trim();
+    progress.textContent = `${done} of ${steps.length} steps complete`
+      + (done === steps.length ? (verifyPassed ? " — verified" : " — run the verification check") : "");
     progress.classList.toggle("done", done === steps.length);
-    submit.disabled = !(done === steps.length && note.value.trim());
+    verifyBtn.disabled = !ready;
+    submit.disabled = !verifyPassed;
   };
+  const invalidate = () => { verifyPassed = false; result.hidden = true; update(); };
+
+  const verify = async () => {
+    verifyBtn.disabled = true;
+    result.hidden = false; result.className = "verify-result checking";
+    result.textContent = "Checking the agent's latest activity against Sentinel…";
+    try {
+      const [dec, pol] = await Promise.all([
+        api(`/v1/decisions?agent_id=${encodeURIComponent(agentId)}&min_mode=LOG&limit=50`),
+        api("/v1/policy").catch(() => null),
+      ]);
+      const fresh = (dec.decisions || []).filter((x) => x.timestamp > openedAt);
+      const reoffended = ruleId && fresh.some((x) => (x.findings || []).some((f) => f.rule_id === ruleId))
+        || fresh.some((x) => x.verdict === "DENY" || x.mode === "QUARANTINE");
+      const fpChanged = pol && baseFingerprint && pol.fingerprint !== baseFingerprint;
+      if (fresh.length === 0) {
+        result.className = "verify-result fail";
+        result.textContent = "No new activity yet. Run the test step (e.g. bash scripts/run_agent.sh loan) so Sentinel can observe the agent's new behaviour, then run the check again.";
+        verifyPassed = false;
+      } else if (reoffended) {
+        result.className = "verify-result fail";
+        result.textContent = `The agent was blocked again on its latest run${ruleId ? ` (${ruleId})` : ""} — the fix hasn't taken. Re-check your changes, redeploy, re-run, then check again.`;
+        verifyPassed = false;
+      } else {
+        const bits = [`${fresh.length} new decision${fresh.length === 1 ? "" : "s"} observed, none blocked`];
+        if (ruleId) bits.push(`no recurrence of ${ruleId}`);
+        if (fpChanged) bits.push("policy updated & reloaded");
+        result.className = "verify-result pass";
+        result.textContent = "Verified — " + bits.join(" · ") + ". You can release the agent now.";
+        verifyPassed = true;
+      }
+    } catch (e) {
+      result.className = "verify-result fail";
+      result.textContent = "Check failed: " + e.message;
+      verifyPassed = false;
+    }
+    verifyBtn.disabled = false;
+    update();
+  };
+  verifyBtn.addEventListener("click", verify);
+
   const stepEls = steps.map((s, i) => {
-    const cb = el("input", { type: "checkbox", onchange: update });
+    const cb = el("input", { type: "checkbox", onchange: invalidate });
     boxes.push(cb);
     return el("li", { class: "step" },
       el("label", { class: "step-head" }, cb, el("span", {}, `${i + 1}. ${s.do}`)),
@@ -349,21 +403,23 @@ function openFixChecklist(agentId, alert) {
         s.after && el("pre", {}, s.after),
         s.test && el("div", { class: "small", style: "margin-top:6px" }, "Test: ", el("code", {}, s.test))));
   });
-  note.addEventListener("input", update);
+  note.addEventListener("input", invalidate);
+
   const form = el("form", { method: "dialog", class: "fixform" },
     el("h2", {}, `Fix ${agentId}`),
     alert && el("p", { class: "small muted", style: "margin:-6px 0 10px" },
       `Quarantined for ${alert.rule_id}${alert.detail ? " — " + alert.detail : ""}`),
     el("p", { class: "small", style: "margin:0 0 12px" },
-      "Work through each step in your editor and terminal, tick it off, then release. Release stays locked until every step is done."),
+      "Work through each step in your editor and terminal and tick it off. Then run the verification check — Sentinel confirms the agent's new behaviour before you can release it."),
     el("ol", { class: "checklist" }, stepEls),
     progress,
     el("label", { for: "fixnote", class: "small muted", style: "display:block;margin:12px 0 4px" },
       "What did you change? (recorded in the audit trail, required)"),
     note,
+    result,
     el("div", { class: "actions" },
       el("button", { type: "button", onclick: () => d.close() }, "Cancel"),
-      submit));
+      verifyBtn, submit));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (submit.disabled) return;
@@ -541,7 +597,7 @@ async function vAgents() {
     quarantined.length ? el("section", { class: "section" },
       el("h2", {}, `Quarantined — resolve (${quarantined.length})`),
       el("p", { class: "small muted", style: "margin:-6px 0 14px" },
-        "Click Resolve issue for a step-by-step fix checklist. The agent can only be released once every step is done."),
+        "Click Resolve issue for a step-by-step fix checklist. The agent is released only after every step is done and a live verification check confirms the fix."),
       el("div", { class: "rows" }, quarantined.map(quarCard))) : null,
     el("div", { class: "section panel table-wrap" }, el("table", {},
       el("thead", {}, el("tr", {}, ["Agent", "Status", "Risk", "Last 24 h", "Heartbeat", ""].map((h) => el("th", {}, h)))),

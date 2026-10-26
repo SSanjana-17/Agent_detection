@@ -315,6 +315,11 @@ dialog:has(.fixform) { width: min(680px, 94vw); }
 .progress { margin-top: 12px; font-family: var(--mono); font-size: 11.5px; letter-spacing: .04em;
   text-transform: uppercase; color: var(--ink-3); }
 .progress.done { color: var(--allow); font-weight: 600; }
+.verify-result { margin-top: 12px; padding: 11px 13px; border: 1px solid var(--rule);
+  font-family: var(--mono); font-size: 12px; line-height: 1.55; }
+.verify-result.checking { color: var(--ink-2); }
+.verify-result.pass { color: var(--allow); border-color: var(--allow); background: var(--allow-bg); }
+.verify-result.fail { color: var(--block); border-color: var(--block); background: var(--block-bg); }
 dialog h2 { font-family: var(--display); font-size: 20px; text-transform: none; letter-spacing: -.01em; color: var(--ink); }
 dialog::backdrop { background: color-mix(in srgb, var(--paper) 55%, rgba(0,0,0,.5)); }
 

@@ -18,4 +18,13 @@ fi
 printf '%s' "$CFG" | python3 -c 'import json,sys;c=json.load(sys.stdin);json.dump(c,open("dashboard/config.json","w"),indent=2);print("Console connected to",c["apiUrl"])'
 echo "Console running at http://localhost:8787/  (Ctrl+C to stop)"
 ( sleep 1; open "http://localhost:8787/" 2>/dev/null || true ) &
-exec python3 -m http.server 8787 --bind 127.0.0.1 --directory dashboard
+# Serve with no-store so edited app.js/styles.css always load fresh (no stale cache).
+exec python3 - <<'PY'
+import functools, http.server
+class H(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        super().end_headers()
+http.server.test(HandlerClass=functools.partial(H, directory="dashboard"),
+                 bind="127.0.0.1", port=8787)
+PY
