@@ -5,6 +5,24 @@
 
 const state = { config: null, token: null, user: null };
 
+// ------------------------------------------------------------------ theme
+// Default: follow the OS. The toggle forces light or dark and remembers it.
+(function initTheme() {
+  try { const t = localStorage.getItem("theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch { /* storage may be blocked */ }
+})();
+function currentTheme() {
+  const set = document.documentElement.getAttribute("data-theme");
+  if (set) return set;
+  return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function themeLabel() { return currentTheme() === "dark" ? "Light mode" : "Dark mode"; }
+function toggleTheme() {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("theme", next); } catch { /* storage may be blocked */ }
+  const b = document.getElementById("theme-btn"); if (b) b.textContent = themeLabel();
+}
+
 // ------------------------------------------------------------------ DOM
 function el(tag, attrs, ...kids) {
   const n = document.createElement(tag);
@@ -194,12 +212,27 @@ function decisionRow(d) {
 async function vOverview() {
   const [o, held] = await Promise.all([api("/v1/overview"), api("/v1/approvals?status=PENDING")]);
   const n = held.approvals.length;
-  const decide = el("section", { class: "decide" + (n ? "" : " clear") },
+  const quar = o.agents.quarantined, openAlerts = o.open_alerts.total;
+  // The band is the "held for approval" queue. When nothing is held but Sentinel
+  // has already acted (quarantined an agent, raised an alert), point there instead
+  // of implying all is clear.
+  const needsReview = !n && (quar || openAlerts);
+  const reviewLine = () => {
+    const parts = [];
+    if (quar) parts.push(el("a", { href: "#/agents" }, `${quar} agent${quar === 1 ? "" : "s"} quarantined`));
+    if (openAlerts) parts.push(el("a", { href: "#/alerts" }, `${openAlerts} open alert${openAlerts === 1 ? "" : "s"}`));
+    const kids = ["Nothing is held for your approval. Already acted on by Sentinel and awaiting review: "];
+    parts.forEach((p, i) => { if (i) kids.push(" and "); kids.push(p); });
+    kids.push(".");
+    return el("p", { class: "small", style: "margin:0" }, ...kids);
+  };
+  const decide = el("section", { class: "decide" + (n ? "" : needsReview ? " attention" : " clear") },
     el("div", { class: "decide-head" }, el("strong", {}, String(n)),
       el("span", {}, n === 1 ? "agent action is waiting for your decision" :
-        n ? "agent actions are waiting for your decision" : "No agent actions are waiting for a decision")),
+        n ? "agent actions are waiting for your decision" : "No agent actions are waiting for your decision")),
     n ? el("div", { class: "rows" }, held.approvals.slice(0, 3).map(holdRow)) :
-      el("p", { class: "muted small", style: "margin:0" }, "High-risk actions pause here until someone approves or rejects them."),
+      needsReview ? reviewLine() :
+      el("p", { class: "muted small", style: "margin:0" }, "High-risk actions pause here until someone approves or rejects them. Nothing else is open."),
     n > 3 && el("p", {}, el("a", { href: "#/approvals" }, `See all ${n} held actions`)));
 
   const facts = el("div", { class: "facts section" },
@@ -431,7 +464,9 @@ async function refreshCounts() {
     state.config = await (await fetch("config.json", { cache: "no-store" })).json();
     if (!(await initAuth())) return;
     document.getElementById("who").append(el("div", {}, state.user.email),
-      el("button", { onclick: logout }, "Sign out"));
+      el("div", { class: "who-actions" },
+        el("button", { id: "theme-btn", onclick: toggleTheme }, themeLabel()),
+        el("button", { onclick: logout }, "Sign out")));
     window.addEventListener("hashchange", route);
     await route();
     setInterval(() => { if (!document.querySelector("dialog[open]")) route(); }, 15000);
