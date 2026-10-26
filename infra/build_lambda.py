@@ -46,5 +46,28 @@ def build(arch: str = "arm64", python_version: str = "3.12") -> Path:
     return OUT
 
 
+def build_agents() -> Path:
+    """Agent Lambda code: the agents package plus the Sentinel SDK (boto3 is in the runtime)."""
+    out = ROOT / "build" / "agents"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+    shutil.copytree(ROOT / "agents", out / "agents", ignore=ignore)
+    shutil.copytree(ROOT / "sdk" / "sentinel_sdk", out / "sentinel_sdk", ignore=ignore)
+    return out
+
+
+def build_demo_data() -> Path:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("generate_data", ROOT / "demo" / "generate_data.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    out = ROOT / "build" / "demo_data"
+    if out.exists():
+        shutil.rmtree(out)
+    return mod.generate(out)
+
+
 if __name__ == "__main__":
     print(build(*(sys.argv[1:3])))

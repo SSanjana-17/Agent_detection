@@ -23,6 +23,7 @@ from typing import Callable
 
 from .anomaly import evaluate_behavior
 from .injection import evaluate_injection
+from .validators import evaluate_outputs
 from .judge import LLMJudge
 from .models import (ActionEvent, AgentStatus, Decision, Finding, Mode,
                      Severity, Verdict)
@@ -81,6 +82,7 @@ class DecisionEngine:
                     title="Behaviour layer unavailable", detail=str(exc)[:200]))
 
         findings.extend(evaluate_injection(ev))
+        findings.extend(evaluate_outputs(ev, ctx.action, ctx.resource, self.policy.output_checks))
 
         if ev.source == "cloudtrail":
             findings.extend(self._bypass_findings(ev, ctx.agent is not None, ctx.resource, now))

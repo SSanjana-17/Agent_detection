@@ -1,0 +1,180 @@
+# Sentinel policy — retail-banking example.
+#
+# Replace bucket names, table names, ARNs and domains with your own. The
+# structure is the contract; see docs/POLICY.md for every field.
+
+version: 1
+organization: example-bank
+
+defaults:
+  # What happens to an agent that is not listed under `agents:`.
+  unknown_agent: QUARANTINE
+  # If Sentinel cannot be reached, SDKs deny (closed) or allow (open).
+  fail_mode: closed
+  # Held actions are rejected automatically after this long (fail closed).
+  hold_timeout_seconds: 900
+  # Default response per severity. Rules below can override per rule.
+  severity_modes:
+    INFO: LOG
+    LOW: LOG
+    MEDIUM: FLAG
+    HIGH: HOLD
+    CRITICAL: QUARANTINE
+
+# Seconds within which a CloudTrail access must match a Sentinel decision.
+bypass_window_seconds: 300
+
+# --------------------------------------------------------------------------
+# Data classification. Highest matching level wins.
+# Levels: 0 public, 1 internal, 2 confidential-low, 3 confidential, 4 restricted
+# --------------------------------------------------------------------------
+classifications:
+  - name: RESTRICTED_PII
+    level: 4
+    description: Customer personal data — KYC documents, identity numbers, contact details.
+    resources:
+      - "s3://example-bank-customer-data/pii/**"
+      - "s3://example-bank-customer-data/kyc/**"
+      - "dynamodb://customers/**"
+      - "/data/customers/pii/**"
+  - name: RESTRICTED_FINANCIAL
+    level: 4
+    description: Card numbers and account-level financial data (PCI scope).
+    resources:
+      - "s3://example-bank-customer-data/cards/**"
+      - "dynamodb://accounts/**"
+  - name: CONFIDENTIAL
+    level: 3
+    description: Loan files, credit decisions, internal risk models.
+    resources:
+      - "s3://example-bank-lending/**"
+      - "s3://example-bank-risk-models/**"
+  - name: INTERNAL
+    level: 1
+    description: Product docs, FAQs, policies.
+    resources:
+      - "s3://example-bank-knowledge/**"
+
+# --------------------------------------------------------------------------
+# Outbound destinations every agent may reach.
+# --------------------------------------------------------------------------
+egress:
+  allowed_domains:
+    - "*.example-bank.internal"
+    - "bedrock-runtime.ap-south-1.amazonaws.com"
+    - "api.anthropic.com"
+
+# IAM identities allowed to touch protected data without going through
+# Sentinel (break-glass admins, ETL jobs). CloudTrail access by anyone else
+# who is not a registered agent raises an alert.
+trusted_principals:
+  - "arn:aws:iam::*:role/example-bank-etl-*"
+  - "arn:aws:sts::*:assumed-role/BreakGlassAdmin/**"
+
+# --------------------------------------------------------------------------
+# Agent inventory.
+# --------------------------------------------------------------------------
+agents:
+  - id: kyc-agent
+    description: Verifies identity documents for new-customer onboarding, one customer at a time.
+    owner: kyc-platform@example-bank.com
+    risk_tier: high
+    max_clearance: RESTRICTED_PII
+    principals: ["arn:aws:sts::*:assumed-role/kyc-agent-role/**"]
+    heartbeat_seconds: 120
+    permissions:
+      - actions: [read, list]
+        resources: ["s3://example-bank-customer-data/kyc/**", "s3://example-bank-customer-data/pii/**"]
+        max_records_per_action: 5
+      - actions: [write]
+        resources: ["s3://example-bank-customer-data/kyc/**"]
+      - actions: [llm_call]
+        resources: []
+    rate_limits:
+      actions_per_minute: 60
+      records_per_hour: 300
+      distinct_resources_per_hour: 200
+
+  - id: loan-agent
+    description: Prepares loan applications and summarises credit files for underwriters.
+    owner: lending-tech@example-bank.com
+    risk_tier: high
+    max_clearance: CONFIDENTIAL
+    principals: ["arn:aws:sts::*:assumed-role/loan-agent-role/**"]
+    heartbeat_seconds: 300
+    permissions:
+      - actions: [read, list, write]
+        resources: ["s3://example-bank-lending/**"]
+        max_records_per_action: 20
+      - actions: [read]
+        resources: ["s3://example-bank-risk-models/**"]
+      - actions: [delete]
+        resources: ["s3://example-bank-lending/drafts/**"]
+        requires_approval: true
+      - actions: [llm_call]
+        resources: []
+    rate_limits:
+      actions_per_minute: 120
+      records_per_hour: 2000
+
+  - id: support-agent
+    description: Answers customer questions from the public knowledge base.
+    owner: cx-automation@example-bank.com
+    risk_tier: medium
+    max_clearance: INTERNAL
+    principals: ["arn:aws:sts::*:assumed-role/support-agent-role/**"]
+    heartbeat_seconds: 60
+    permissions:
+      - actions: [read, list]
+        resources: ["s3://example-bank-knowledge/**"]
+      - actions: [message, output]
+        resources: []
+      - actions: [llm_call]
+        resources: []
+    rate_limits:
+      actions_per_minute: 200
+
+  - id: reporting-agent
+    description: Builds weekly aggregate operations reports. Never needs customer-level data.
+    owner: bi-team@example-bank.com
+    risk_tier: medium
+    max_clearance: INTERNAL
+    principals: ["arn:aws:sts::*:assumed-role/reporting-agent-role/**"]
+    working_hours: {tz: Asia/Kolkata, start: "07:00", end: "21:00"}
+    permissions:
+      - actions: [read, list]
+        resources: ["s3://example-bank-knowledge/**", "s3://example-bank-reports/**"]
+      - actions: [write]
+        resources: ["s3://example-bank-reports/**"]
+      - actions: [output]
+        resources: []
+    rate_limits:
+      actions_per_minute: 100
+      records_per_hour: 5000
+
+# --------------------------------------------------------------------------
+# Per-rule overrides. Keys are rule ids (see docs/RULES.md); `<prefix>.*`
+# applies to every rule in a family.
+# --------------------------------------------------------------------------
+rules:
+  dlp.pii_exfiltration: {mode: QUARANTINE}
+  dlp.secret_leak: {mode: BLOCK}
+  iam.privilege_escalation: {mode: QUARANTINE}
+  egress.unapproved_destination: {mode: BLOCK}
+  bypass.unmediated_access: {mode: QUARANTINE}
+  access.requires_approval: {mode: HOLD}
+  injection.prompt_injection: {mode: BLOCK}
+  anomaly.off_hours: {severity: LOW}
+
+anomaly:
+  enabled: true
+  min_samples: 200
+  record_z: 6.0
+
+judge:
+  enabled: true
+  inline_for_risk_tiers: [high, critical]
+  inline_timeout_ms: 2500
+  flag_risk: 51
+  hold_risk: 75
+  block_risk: 90

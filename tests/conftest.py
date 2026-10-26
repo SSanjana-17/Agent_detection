@@ -15,7 +15,7 @@ from sentinel_core.policy import load_policy  # noqa: E402
 from sentinel_core.service import Identity, SentinelService  # noqa: E402
 from sentinel_core.store import MemoryStore  # noqa: E402
 
-POLICY_PATH = ROOT / "policies" / "policy.yaml"
+POLICY_PATH = ROOT / "tests" / "fixtures" / "policy_example.yaml"
 
 # ---------------------------------------------------------------- data helpers
 _D = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],

@@ -152,7 +152,7 @@ def test_cloudtrail_trusted_and_unknown_principals(service):
 
 def test_controls_and_scores(policy, store):
     res = {r.control_id: r.to_dict() for r in run_all(ComplianceContext(policy=policy, store=store))}
-    assert len(res) == 12
+    assert len(res) == 13
     assert res["AGT-02"]["status"] == "PASS"
     assert res["AGT-03"]["status"] == "PASS"
     scores = framework_scores(res)

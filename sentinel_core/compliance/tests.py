@@ -253,10 +253,24 @@ def t_alignment(ctx: ComplianceContext) -> _Checks:
     return c
 
 
+def t_output_validation(ctx: ComplianceContext) -> _Checks:
+    c = _Checks()
+    checks = ctx.policy.output_checks
+    c.check("decision validation rules defined", bool(checks),
+            f"{len(checks)} output check(s)" if checks else "no output checks in policy", warn_only=True)
+    m = _mode_of(ctx.policy, "output.loan_policy_breach", Severity.HIGH)
+    c.check("rule-breaking decisions held or blocked", m >= Mode.HOLD,
+            f"mode = {getattr(m, 'name', 'DISABLED')}")
+    stale = _stale_alerts(ctx, ("output.",))
+    c.check("decision alerts triaged within SLA", not stale, f"{len(stale)} overdue")
+    return c
+
+
 TESTS: dict[str, Callable[[ComplianceContext], _Checks]] = {
     "AGT-01": t_inventory, "AGT-02": t_least_privilege, "AGT-03": t_dlp, "AGT-04": t_egress,
     "AGT-05": t_privilege, "AGT-06": t_secrets, "AGT-07": t_behaviour, "AGT-08": t_injection,
     "AGT-09": t_oversight, "AGT-10": t_health, "AGT-11": t_audit, "AGT-12": t_alignment,
+    "AGT-13": t_output_validation,
 }
 
 

@@ -42,7 +42,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class SentinelStack(Stack):
-    def __init__(self, scope: Construct, cid: str, *, lambda_dir: str, config: dict, **kw) -> None:
+    def __init__(self, scope: Construct, cid: str, *, lambda_dir: str, config: dict,
+                 agents_dir: str | None = None, demo_data_dir: str | None = None, **kw) -> None:
         super().__init__(scope, cid, **kw)
         Tags.of(self).add("app", "sentinel")
 
@@ -360,29 +361,39 @@ class SentinelStack(Stack):
         CfnOutput(self, "ConsoleConfig", value=cdk_json(self, console_config),
                   description="dashboard/config.json for running the console locally")
 
+        # ------------------------------------------------ demo bank + agents
+        protected: list[s3.IBucket] = [s3.Bucket.from_bucket_name(self, f"Protected{i}", b)
+                                       for i, b in enumerate(protected_buckets)]
+        demo = None
+        if agents_dir and demo_data_dir:
+            from demo_agents import DemoAgents
+            demo = DemoAgents(self, "Demo", agent_code_dir=agents_dir, data_dir=demo_data_dir,
+                              sentinel_endpoint=f"{api.url}agent", agent_invoke_policy=agent_policy,
+                              schedule_minutes=int(config.get("demoScheduleMinutes", 10)))
+            protected.append(demo.bucket)
+
         # -------------------------------------------------- bypass detection
         trail_arn = ""
-        if protected_buckets:
+        if protected and config.get("bypassDetection", True):
             trail_bucket = s3.Bucket(
-                self, "TrailBucket", encryption=s3.BucketEncryption.KMS, encryption_key=key,
+                self, "TrailBucket", encryption=s3.BucketEncryption.S3_MANAGED,
                 block_public_access=s3.BlockPublicAccess.BLOCK_ALL, enforce_ssl=True,
-                versioned=True, removal_policy=RemovalPolicy.RETAIN)
-            key.grant_encrypt_decrypt(iam.ServicePrincipal("cloudtrail.amazonaws.com"))
+                lifecycle_rules=[s3.LifecycleRule(expiration=Duration.days(90))],
+                removal_policy=RemovalPolicy.RETAIN)
             trail = cloudtrail.Trail(
-                self, "DataTrail", bucket=trail_bucket, encryption_key=key,
+                self, "DataTrail", bucket=trail_bucket,
                 include_global_service_events=False, is_multi_region_trail=False,
                 enable_file_validation=True, management_events=cloudtrail.ReadWriteType.NONE)
-            for b in protected_buckets:
-                trail.add_s3_event_selector(
-                    [cloudtrail.S3EventSelector(bucket=s3.Bucket.from_bucket_name(self, f"Protected-{b}", b))],
-                    include_management_events=False, read_write_type=cloudtrail.ReadWriteType.ALL)
+            trail.add_s3_event_selector([cloudtrail.S3EventSelector(bucket=b) for b in protected],
+                                        include_management_events=False,
+                                        read_write_type=cloudtrail.ReadWriteType.ALL)
             trail_arn = trail.trail_arn
             events.Rule(
                 self, "S3DataAccessRule",
                 event_pattern=events.EventPattern(
                     source=["aws.s3"], detail_type=["AWS API Call via CloudTrail"],
                     detail={"eventSource": ["s3.amazonaws.com"],
-                            "requestParameters": {"bucketName": protected_buckets}}),
+                            "requestParameters": {"bucketName": [b.bucket_name for b in protected]}}),
                 targets=[targets.LambdaFunction(cloudtrail_fn, retry_attempts=4)])
             scheduler_fn.add_environment("TRAIL_ARN", trail_arn)
             scheduler_fn.add_to_role_policy(iam.PolicyStatement(
@@ -436,3 +447,7 @@ class SentinelStack(Stack):
         CfnOutput(self, "UserPoolId", value=pool.user_pool_id)
         CfnOutput(self, "TableName", value=table.table_name)
         CfnOutput(self, "AlertTopicArn", value=topic.topic_arn)
+        if demo is not None:
+            CfnOutput(self, "DemoBucket", value=demo.bucket.bucket_name)
+            for agent_id, f in demo.functions.items():
+                CfnOutput(self, f"Agent{agent_id.title().replace('-', '')}Function", value=f.function_name)

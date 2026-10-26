@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import aws_cdk as cdk  # noqa: E402
 
-from build_lambda import build  # noqa: E402
+from build_lambda import build, build_agents, build_demo_data  # noqa: E402
 from sentinel_stack import SentinelStack  # noqa: E402
 
 app = cdk.App()
@@ -38,13 +38,18 @@ config = {
     "cognitoDomainPrefix": ctx("cognitoDomainPrefix", None) or None,
     "securityHub": str(ctx("securityHub", "false")).lower() == "true",
     "consoleHosting": ctx("consoleHosting", "cloudfront"),
+    "demoScheduleMinutes": int(ctx("demoScheduleMinutes", 10)),
+    "bypassDetection": str(ctx("bypassDetection", "true")).lower() == "true",
 }
 config = {k: v for k, v in config.items() if v is not None}
 
 lambda_dir = build(arch="arm64")
+demo_enabled = str(ctx("demoAgents", "true")).lower() == "true"
 
 SentinelStack(
     app, ctx("stackName", "Sentinel"), lambda_dir=str(lambda_dir), config=config,
+    agents_dir=str(build_agents()) if demo_enabled else None,
+    demo_data_dir=str(build_demo_data()) if demo_enabled else None,
     env=cdk.Environment(account=os.environ.get("CDK_DEFAULT_ACCOUNT"),
                         region=ctx("region", os.environ.get("CDK_DEFAULT_REGION", "ap-south-1"))),
     description="Sentinel: AI agent governance, monitoring and enforcement",

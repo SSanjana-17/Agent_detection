@@ -36,8 +36,8 @@ check "CloudWatch Logs"        aws logs describe-log-groups --limit 1
 check "CloudWatch Alarms"      aws cloudwatch describe-alarms --max-records 1
 check "X-Ray"                  aws xray get-sampling-rules
 check "IAM"                    aws iam list-roles --max-items 1
-echo "Optional:"
 check "CloudTrail (bypass detection)" aws cloudtrail describe-trails
+echo "Optional:"
 check "Bedrock (LLM judge)"    aws bedrock list-foundation-models --by-provider anthropic
 check "CloudFront (hosted console)" aws cloudfront list-distributions --max-items 1
 check "Kinesis (not used any more)" aws kinesis list-streams --max-results 1

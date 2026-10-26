@@ -101,6 +101,12 @@ CONTROLS: list[Control] = [
             "AI governance lead",
             {"ISO42001": ["A.6.2.4", "A.9.4"], "NISTAIRMF": ["MEASURE 2.5", "MEASURE 2.6"],
              "SOC2": ["CC7.2"]}),
+    Control("AGT-13", "Validation of agent decisions",
+            "Business decisions an agent writes (e.g. loan approvals) are checked against the bank's rules "
+            "before they are saved; breaches are held for a human.",
+            "Business process owner",
+            {"SOC2": ["PI1.2", "PI1.3"], "ISO42001": ["A.6.2.4", "A.6.2.6"],
+             "NISTAIRMF": ["MEASURE 2.5", "MANAGE 2.2"], "ISO27001": ["8.28"]}),
 ]
 
 CONTROL_INDEX = {c.id: c for c in CONTROLS}

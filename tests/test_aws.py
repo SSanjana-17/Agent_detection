@@ -212,7 +212,7 @@ def test_events_go_through_stream_and_evidence_chain(aws):
 def test_scheduler_controls_and_health(aws):
     from sentinel_core.aws.handlers import scheduler_handler
     out = scheduler_handler({"job": "controls"}, None)
-    assert len(out["results"]) == 12
+    assert len(out["results"]) == 13
     assert out["results"]["AGT-11"] in ("PASS", "WARN")  # object lock verified via S3 API
     assert scheduler_handler({"job": "health"}, None)["findings"] >= 1
     assert scheduler_handler({"job": "health"}, None)["findings"] == 0, "no repeat health alerts"

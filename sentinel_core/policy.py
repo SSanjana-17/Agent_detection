@@ -211,6 +211,7 @@ class Policy:
     anomaly: dict[str, Any] = field(default_factory=dict)
     judge: dict[str, Any] = field(default_factory=dict)
     trusted_principals: list[str] = field(default_factory=list)
+    output_checks: list[dict[str, Any]] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ lookups
@@ -345,6 +346,15 @@ def parse_policy(doc: dict[str, Any]) -> Policy:
             mode=Mode.parse(o["mode"]) if o.get("mode") else None,
         )
 
+    from .validators import VALIDATORS
+    output_checks: list[dict[str, Any]] = []
+    for chk in doc.get("output_checks", []) or []:
+        _require(isinstance(chk, dict) and chk.get("id") and chk.get("resources") and chk.get("validator"),
+                 f"output check needs id, resources and validator: {chk}")
+        _require(chk["validator"] in VALIDATORS, f"unknown validator '{chk['validator']}'")
+        output_checks.append({"id": str(chk["id"]), "resources": [str(r) for r in chk["resources"]],
+                              "validator": chk["validator"], "params": dict(chk.get("params") or {})})
+
     fail_mode = str(defaults.get("fail_mode", "closed")).lower()
     _require(fail_mode in ("closed", "open"), "fail_mode must be closed|open")
 
@@ -362,6 +372,7 @@ def parse_policy(doc: dict[str, Any]) -> Policy:
         anomaly=dict(doc.get("anomaly", {}) or {}),
         judge=dict(doc.get("judge", {}) or {}),
         trusted_principals=[str(x) for x in doc.get("trusted_principals", []) or []],
+        output_checks=output_checks,
         raw=doc,
     )
 

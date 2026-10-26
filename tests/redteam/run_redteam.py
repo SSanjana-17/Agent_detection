@@ -28,7 +28,7 @@ from sentinel_core.policy import load_policy  # noqa: E402
 from sentinel_core.service import Identity, SentinelService  # noqa: E402
 from sentinel_core.store import MemoryStore  # noqa: E402
 
-POLICY = ROOT / "policies" / "policy.yaml"
+POLICY = ROOT / "tests" / "fixtures" / "policy_example.yaml"
 LOCAL = Identity(kind="local")
 ARN = "arn:aws:sts::123456789012:assumed-role/{}-role/s"
 
