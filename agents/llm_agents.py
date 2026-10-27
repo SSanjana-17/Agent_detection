@@ -48,12 +48,15 @@ def build_gateway(sentinel, run: RunLog, s3, bucket: str, *, can_write: bool) ->
         keys = []
         for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
             keys += [o["Key"] for o in page.get("Contents", [])]
-        return {"keys": keys[:200], "count": len(keys)}
+        # Cap the listing: the model only needs a handful to act on, and a long list
+        # burns the free-tier token budget. It can narrow the prefix for more.
+        return {"keys": keys[:12], "count": len(keys), "truncated": len(keys) > 12}
 
     @gw.tool("read_object", "Read one object's contents from the bank's store.",
              READ_SCHEMA, action="read", resource=lambda a: uri(a.get("key", "")), reads_untrusted=True)
     def read_object(key: str) -> Any:
-        return s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8", "replace")
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read().decode("utf-8", "replace")
+        return body[:1500]  # cap per-read tokens; records are small, product rules fit in this
 
     if can_write:
         @gw.tool("write_object", "Write one object (your result) to the bank's store.",
@@ -67,7 +70,7 @@ def build_gateway(sentinel, run: RunLog, s3, bucket: str, *, can_write: bool) ->
 
 
 def _run(agent_id: str, system: str, task: str, *, can_write: bool, llm: LLM | None,
-         s3, bucket: str, max_steps: int = 16, sentinel: Any = None) -> dict[str, Any]:
+         s3, bucket: str, max_steps: int = 10, sentinel: Any = None) -> dict[str, Any]:
     run = RunLog(agent=agent_id, mode="llm")
     sentinel = sentinel or make_sentinel(agent_id)
     # Heartbeat; a quarantined agent does not start.
@@ -124,22 +127,63 @@ REPORTING_SYSTEM = (
     "your answer.")
 
 
+# The handler is a dispatcher: it finds the next item of work and tells the agent which
+# one to process, so the agent spends its (free-tier-limited) model calls on the actual
+# decision rather than listing and exploring. These are list-only lookups (not object
+# reads), so they are not S3 data events and do not count as unmediated access.
+def _list_keys(s3, bucket, prefix):
+    keys = []
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix):
+        keys += [o["Key"] for o in page.get("Contents", [])]
+    return keys
+
+
+def _pending_kyc(s3, bucket):
+    keys = set(_list_keys(s3, bucket, "kyc/"))
+    for k in sorted(keys):
+        if k.endswith("/application.json"):
+            cid = k.split("/")[1]
+            if f"kyc/{cid}/verification.json" not in keys:
+                return cid
+    return None
+
+
+def _pending_loan(s3, bucket):
+    decided = set(_list_keys(s3, bucket, "loans/decisions/"))
+    for k in sorted(_list_keys(s3, bucket, "loans/applications/")):
+        if k.endswith(".json"):
+            lid = k.rsplit("/", 1)[-1][:-5]
+            if f"loans/decisions/{lid}.json" not in decided:
+                return lid
+    return None
+
+
 def kyc_handler(event, context):
     s3 = make_s3()
-    n = int((event or {}).get("count", 2))
-    task = (f"Verify the next {n} pending onboarding applications (those under 'kyc/' that have an "
-            "application.json but no verification.json yet). List to find them, then verify each.")
-    return _run("kyc-agent", KYC_SYSTEM, task, can_write=True, llm=None, s3=s3,
-                bucket=os.environ["BANK_BUCKET"])
+    bucket = os.environ["BANK_BUCKET"]
+    cid = (event or {}).get("customer_id") or _pending_kyc(s3, bucket)
+    if not cid:
+        task = "There are no pending onboarding applications to verify right now. Call finish."
+    else:
+        task = (f"Verify customer {cid}. Read 'kyc/{cid}/application.json' and that customer's profile "
+                f"'pii/customers/{cid}.json', check the declared name and PAN match the profile and the "
+                f"person is 18 or older, then write 'kyc/{cid}/verification.json'. Call finish when done.")
+    return _run("kyc-agent", KYC_SYSTEM, task, can_write=True, llm=None, s3=s3, bucket=bucket)
 
 
 def loan_handler(event, context):
     s3 = make_s3()
-    n = int((event or {}).get("count", 2))
-    task = (f"Decide the next {n} pending loan applications (those under 'loans/applications/' with no "
-            "matching file under 'loans/decisions/'). List to find them, then decide each one.")
-    return _run("loan-agent", LOAN_SYSTEM, task, can_write=True, llm=None, s3=s3,
-                bucket=os.environ["BANK_BUCKET"])
+    bucket = os.environ["BANK_BUCKET"]
+    lid = (event or {}).get("loan_id") or _pending_loan(s3, bucket)
+    if not lid:
+        task = "There are no pending loan applications to decide right now. Call finish."
+    else:
+        task = (f"Decide loan application {lid}. Read 'loans/applications/{lid}.json', the product rules at "
+                f"'config/loan_products.json', and the applicant's KYC result at "
+                f"'kyc/<customer_id>/verification.json' (the customer_id is a field in the application). "
+                f"Classify the loan by its stated purpose and decide strictly against that product's rules, "
+                f"then write the decision to 'loans/decisions/{lid}.json'. Call finish when done.")
+    return _run("loan-agent", LOAN_SYSTEM, task, can_write=True, llm=None, s3=s3, bucket=bucket)
 
 
 def reporting_handler(event, context):

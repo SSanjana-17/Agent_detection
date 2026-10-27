@@ -1,6 +1,6 @@
 # Demo bank and LLM agents
 
-Deploying Sentinel also deploys a small demo bank with three **LLM agents**. Each agent is a real language model (Groq `openai/gpt-oss-120b`) that decides for itself how to do its job. Its only way to act is through a small set of tools, and **every tool call passes through Sentinel before anything happens** (the tool gateway, `agents/gateway.py`). There is no unguarded path: the model has no S3 client of its own.
+Deploying Sentinel also deploys a small demo bank with three **LLM agents**. Each agent is a real language model (Google `gemini-2.0-flash`) that decides for itself how to do its job. Its only way to act is through a small set of tools, and **every tool call passes through Sentinel before anything happens** (the tool gateway, `agents/gateway.py`). There is no unguarded path: the model has no S3 client of its own.
 
 | Piece | What it is |
 |---|---|

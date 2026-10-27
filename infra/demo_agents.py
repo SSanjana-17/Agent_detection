@@ -24,9 +24,9 @@ from constructs import Construct
 
 AGENTS = {
     "kyc-agent": {"handler": "agents.llm_agents.kyc_handler", "write_prefix": "kyc/*",
-                  "schedule_input": {"count": 2}},
+                  "schedule_input": {"count": 1}},
     "loan-agent": {"handler": "agents.llm_agents.loan_handler", "write_prefix": "loans/decisions/*",
-                   "schedule_input": {"count": 2}},
+                   "schedule_input": {"count": 1}},
     "reporting-agent": {"handler": "agents.llm_agents.reporting_handler", "write_prefix": "reports/weekly/*",
                         "schedule_input": {}},
 }
@@ -35,7 +35,8 @@ AGENTS = {
 class DemoAgents(Construct):
     def __init__(self, scope: Construct, cid: str, *, agent_code_dir: str, data_dir: str,
                  sentinel_endpoint: str, agent_invoke_policy: iam.IManagedPolicy,
-                 llm_secret_name: str = "sentinel-demo/llm-api-key", llm_model: str = "openai/gpt-oss-120b",
+                 llm_secret_name: str = "sentinel-demo/llm-api-key", llm_model: str = "gemini-3.5-flash-lite",
+                 llm_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai",
                  schedule_minutes: int = 10, **kw) -> None:
         super().__init__(scope, cid, **kw)
         stack = Stack.of(self)
@@ -74,7 +75,7 @@ class DemoAgents(Construct):
                 log_group=log_group,
                 environment={"SENTINEL_ENDPOINT": sentinel_endpoint, "BANK_BUCKET": self.bucket.bucket_name,
                              "HOLD_MAX_WAIT": "180", "LLM_SECRET_ARN": llm_secret.secret_arn,
-                             "LLM_MODEL": llm_model})
+                             "LLM_MODEL": llm_model, "LLM_BASE_URL": llm_base_url})
             llm_secret.grant_read(role)
             fn.node.add_dependency(log_group)
             if schedule_minutes > 0:

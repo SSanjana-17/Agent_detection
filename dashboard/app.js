@@ -293,6 +293,38 @@ function getChecklist(ruleId) {
   return CK.DEFAULT;
 }
 
+// Check the LIVE policy reflects the fix for this rule. Returns {pass, detail}.
+// pass === null means "no rule-specific assertion" — the caller falls back to
+// requiring that a policy change was deployed (fingerprint changed).
+function policyVerdict(doc, ruleId, agentId) {
+  if (!doc) return { pass: false, detail: "Couldn't read the active policy to verify." };
+  const rules = doc.rules || {};
+  const mode = (rid) => (rules[rid] && rules[rid].mode) || null;
+  const agent = (doc.agents || []).find((a) => a.id === agentId);
+  const reaches = (needle) => agent && (agent.permissions || []).some(
+    (p) => (p.resources || []).some((r) => String(r).includes(needle)));
+  const fam = (ruleId || "").split(".")[0];
+  if (fam === "dlp" || fam === "access" || fam === "injection") {
+    if (reaches("/pii/")) return { pass: false, detail: `${agentId} still has a permission that reaches pii/ — remove it in policies/policy.yaml, redeploy, then check again.` };
+    if (mode("dlp.pii_exfiltration") === "LOG") return { pass: false, detail: "dlp.pii_exfiltration is set to LOG — restore it to QUARANTINE so the PII guardrail stays active." };
+    return { pass: true, detail: `${agentId} has no access to pii/, and the PII guardrail (dlp.pii_exfiltration) is active` };
+  }
+  if (fam === "bypass") {
+    if (mode("bypass.unmediated_access") !== "QUARANTINE") return { pass: false, detail: "bypass.unmediated_access must be QUARANTINE — set it in policies/policy.yaml." };
+    return { pass: true, detail: "the unmediated-access guardrail is active (QUARANTINE)" };
+  }
+  if (fam === "iam") {
+    if (mode("iam.privilege_escalation") !== "QUARANTINE") return { pass: false, detail: "iam.privilege_escalation must be QUARANTINE." };
+    return { pass: true, detail: "the privilege-escalation guardrail is active" };
+  }
+  if (fam === "output") {
+    const m = mode("output.loan_policy_breach");
+    if (m && m !== "HOLD" && m !== "QUARANTINE") return { pass: false, detail: "output.loan_policy_breach must be HOLD or QUARANTINE so rule-breaking approvals are caught." };
+    return { pass: true, detail: "the loan-decision check holds rule-breaking approvals for a human" };
+  }
+  return { pass: null, detail: "" }; // rate / anomaly / default → require a deployed policy change
+}
+
 // Release an agent and clear its open alerts, so an active agent never leaves stale alerts behind.
 async function releaseAgentWithAlerts(agentId, reason) {
   try {
@@ -354,31 +386,26 @@ function openFixChecklist(agentId, alert) {
   const verify = async () => {
     verifyBtn.disabled = true;
     result.hidden = false; result.className = "verify-result checking";
-    result.textContent = "Checking the agent's latest activity against Sentinel…";
+    result.textContent = "Checking the live policy for the fix…";
     try {
-      const [dec, pol] = await Promise.all([
-        api(`/v1/decisions?agent_id=${encodeURIComponent(agentId)}&min_mode=LOG&limit=50`),
-        api("/v1/policy").catch(() => null),
-      ]);
-      const fresh = (dec.decisions || []).filter((x) => x.timestamp > openedAt);
-      const reoffended = ruleId && fresh.some((x) => (x.findings || []).some((f) => f.rule_id === ruleId))
-        || fresh.some((x) => x.verdict === "DENY" || x.mode === "QUARANTINE");
+      const pol = await api("/v1/policy").catch(() => null);
       const fpChanged = pol && baseFingerprint && pol.fingerprint !== baseFingerprint;
-      if (fresh.length === 0) {
-        result.className = "verify-result fail";
-        result.textContent = "No new activity yet. Run the test step (e.g. bash scripts/run_agent.sh loan) so Sentinel can observe the agent's new behaviour, then run the check again.";
-        verifyPassed = false;
-      } else if (reoffended) {
-        result.className = "verify-result fail";
-        result.textContent = `The agent was blocked again on its latest run${ruleId ? ` (${ruleId})` : ""} — the fix hasn't taken. Re-check your changes, redeploy, re-run, then check again.`;
-        verifyPassed = false;
-      } else {
-        const bits = [`${fresh.length} new decision${fresh.length === 1 ? "" : "s"} observed, none blocked`];
-        if (ruleId) bits.push(`no recurrence of ${ruleId}`);
-        if (fpChanged) bits.push("policy updated & reloaded");
+      const v = policyVerdict(pol && pol.document, ruleId, agentId);
+      let pass, detail;
+      if (v.pass === null) {
+        pass = !!fpChanged;
+        detail = fpChanged ? "Policy change detected and reloaded."
+          : "No policy change detected since you started — edit policy.yaml and redeploy so Sentinel reloads it, then check again.";
+      } else { pass = v.pass; detail = v.detail; }
+      if (pass) {
         result.className = "verify-result pass";
-        result.textContent = "Verified — " + bits.join(" · ") + ". You can release the agent now.";
+        result.textContent = `Verified — ${detail}${fpChanged ? " · policy updated & reloaded" : ""}. `
+          + "You can release the agent now — it re-runs under the current rules, and if it misbehaves again Sentinel re-quarantines it.";
         verifyPassed = true;
+      } else {
+        result.className = "verify-result fail";
+        result.textContent = detail;
+        verifyPassed = false;
       }
     } catch (e) {
       result.className = "verify-result fail";
@@ -410,7 +437,7 @@ function openFixChecklist(agentId, alert) {
     alert && el("p", { class: "small muted", style: "margin:-6px 0 10px" },
       `Quarantined for ${alert.rule_id}${alert.detail ? " — " + alert.detail : ""}`),
     el("p", { class: "small", style: "margin:0 0 12px" },
-      "Work through each step in your editor and terminal and tick it off. Then run the verification check — Sentinel confirms the agent's new behaviour before you can release it."),
+      "Work through each step in your editor and terminal and tick it off. Then run the verification check — Sentinel confirms the fix is reflected in the live policy before you can release it."),
     el("ol", { class: "checklist" }, stepEls),
     progress,
     el("label", { for: "fixnote", class: "small muted", style: "display:block;margin:12px 0 4px" },

@@ -16,8 +16,8 @@ REGION="${AWS_REGION:-ap-south-1}"
 AGENT="${1:-}"; shift || true
 DEFAULT_Q="Summarise this week application volume and approval rate by branch."
 case "$AGENT" in
-  kyc)       FN=sentinel-demo-kyc-agent;       PAYLOAD='{"count": 2}' ;;
-  loan)      FN=sentinel-demo-loan-agent;      PAYLOAD='{"count": 2}' ;;
+  kyc)       FN=sentinel-demo-kyc-agent;       PAYLOAD='{"count": 1}' ;;
+  loan)      FN=sentinel-demo-loan-agent;      PAYLOAD='{"count": 1}' ;;
   reporting) FN=sentinel-demo-reporting-agent
              Q="${*:-$DEFAULT_Q}"
              PAYLOAD=$(python3 -c 'import json,sys; print(json.dumps({"question": sys.argv[1]}))' "$Q") ;;

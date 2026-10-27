@@ -36,19 +36,24 @@ class LLM(Protocol):
 
 @dataclass
 class GroqLLM:
-    """OpenAI-compatible chat completions (Groq)."""
+    """OpenAI-compatible chat completions. Works with any OpenAI-compatible endpoint;
+    defaults to Google Gemini (generous free-tier token limits). Set base_url + model
+    (or the LLM_BASE_URL / LLM_MODEL env vars) to point at another provider."""
 
     api_key: str
-    model: str = "openai/gpt-oss-120b"
-    base_url: str = "https://api.groq.com/openai/v1"
+    model: str = "gemini-3.5-flash-lite"
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     temperature: float = 0.4
-    timeout: float = 45.0
-    max_retries: int = 3
+    timeout: float = 90.0
+    max_retries: int = 2
 
     def complete(self, messages, tools):
-        body = json.dumps({"model": self.model, "messages": messages, "tools": tools,
-                           "tool_choice": "auto", "temperature": self.temperature,
-                           "parallel_tool_calls": False}).encode()
+        payload = {"model": self.model, "messages": messages, "temperature": self.temperature,
+                   "reasoning_effort": "low"}  # keep Gemini's "thinking" short so tool calls return quickly
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        body = json.dumps(payload).encode()
         # A real User-Agent is required: the API sits behind a CDN that returns 403
         # to the default urllib agent from a datacenter IP (e.g. Lambda).
         req = urllib.request.Request(f"{self.base_url}/chat/completions", data=body, method="POST",
@@ -69,7 +74,15 @@ class GroqLLM:
                     pass
                 last = RuntimeError(f"HTTP {e.code} from LLM API: {detail or e.reason}")
                 if e.code in (429, 500, 502, 503) and attempt < self.max_retries - 1:
-                    time.sleep(2 * (attempt + 1))
+                    # 429 is the per-minute token cap on the free tier. Honour Retry-After
+                    # so we wait exactly until the window resets, then continue.
+                    retry_after = None
+                    try:
+                        retry_after = float((e.headers or {}).get("retry-after"))
+                    except (TypeError, ValueError):
+                        retry_after = None
+                    wait = retry_after + 1 if retry_after else (7 if e.code == 429 else 2) * (attempt + 1)
+                    time.sleep(min(wait, 65))
                     continue
                 raise last
             except (urllib.error.URLError, TimeoutError) as e:
@@ -132,7 +145,9 @@ def _load_key() -> str:
 
 
 def groq_from_env() -> GroqLLM:
-    return GroqLLM(api_key=_load_key(), model=os.environ.get("LLM_MODEL", "openai/gpt-oss-120b"))
+    return GroqLLM(api_key=_load_key(),
+                   model=os.environ.get("LLM_MODEL", "gemini-3.5-flash-lite"),
+                   base_url=os.environ.get("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"))
 
 
 @dataclass
